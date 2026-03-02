@@ -121,7 +121,8 @@ class TechnicalAnalyzer:
         df["boll_lower"] = df["boll_middle"] - std_dev * std
         
         # 位置百分比 (%B)
-        df["boll_position"] = (df["close"] - df["boll_lower"]) / (df["boll_upper"] - df["boll_lower"])
+        boll_range = df["boll_upper"] - df["boll_lower"]
+        df["boll_position"] = (df["close"] - df["boll_lower"]) / boll_range.where(boll_range != 0, 1)
         
         return df
     
@@ -134,8 +135,8 @@ class TechnicalAnalyzer:
         # 计算RSV
         low_n = df["low"].rolling(window=n).min()
         high_n = df["high"].rolling(window=n).max()
-        
-        rsv = (df["close"] - low_n) / (high_n - low_n) * 100
+        price_range = high_n - low_n
+        rsv = (df["close"] - low_n) / price_range.where(price_range != 0, 1) * 100
         rsv = rsv.fillna(50)
         
         # 计算K、D、J

@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import pandas as pd
 
 from analyzers.technical import TechnicalAnalyzer, calculate_technical_score
 from analyzers.momentum import MomentumAnalyzer, calculate_momentum_score

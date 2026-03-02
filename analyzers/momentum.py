@@ -108,8 +108,9 @@ class MomentumAnalyzer:
         # 滚动夏普比率
         mean_return = daily_returns.rolling(window=period).mean()
         std_return = daily_returns.rolling(window=period).std()
-        
-        df["sharpe_ratio"] = (mean_return / std_return) * np.sqrt(252) if std_return > 0 else 0
+
+        sharpe = (mean_return / std_return.where(std_return != 0, np.nan)) * np.sqrt(252)
+        df["sharpe_ratio"] = sharpe.fillna(0)
         
         return df
     

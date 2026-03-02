@@ -215,14 +215,16 @@ class ETFStorage:
         """获取最新实时行情"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT * FROM etf_realtime WHERE symbol = ?", (symbol,))
         row = cursor.fetchone()
-        conn.close()
-        
+
         if row:
             columns = [desc[0] for desc in cursor.description]
-            return dict(zip(columns, row))
+            result = dict(zip(columns, row))
+            conn.close()
+            return result
+        conn.close()
         return {}
     
     def save_analysis(self, symbol: str, analysis: dict) -> bool:

@@ -135,9 +135,9 @@ class FeishuReporter:
         for row in content:
             text_content = ""
             for item in row:
-                if item.get("type") == "text"):
+                if item.get("type") == "text":
                     text_content += item.get("content", "")
-                elif item.get("type") == "link"):
+                elif item.get("type") == "link":
                     text_content += f"[{item.get('content', '')}]({item.get('url', '')})"
             
             if text_content:

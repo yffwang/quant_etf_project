@@ -191,32 +191,76 @@ class QuantETFSystem:
     def run_schedule(self):
         """定时运行"""
         logger.info("启动定时任务...")
-        
+
         # 每10分钟运行一次
         schedule.every(config.FETCH_INTERVAL_MINUTES).minutes.do(self.run_once)
-        
+
         # 立即运行一次
         self.run_once()
-        
+
         # 保持运行
         while True:
             schedule.run_pending()
             time.sleep(60)
 
+    def analyze_market_performance(self):
+        """分析全市场ETF表现"""
+        logger.info("=" * 60)
+        logger.info("开始全市场ETF涨幅分析")
+
+        perf_df = self.fetcher.get_all_etf_performance(days=5)
+
+        if perf_df.empty:
+            logger.error("未能获取ETF数据")
+            return
+
+        logger.info(f"共获取 {len(perf_df)} 只ETF的涨跌幅数据")
+
+        print("\n" + "=" * 60)
+        print("📊 全市场ETF涨幅分析")
+        print("=" * 60)
+
+        print(f"\n📈 统计时间: {datetime.now().strftime('%Y-%m-%d')}")
+        print(f"📊 分析ETF总数: {len(perf_df)}")
+
+        strong_5d = perf_df[perf_df['5_day_change'] > 10].sort_values('5_day_change', ascending=False)
+        print(f"\n🔺 5日涨幅超过10%的ETF ({len(strong_5d)}只):")
+        if not strong_5d.empty:
+            for _, row in strong_5d.head(10).iterrows():
+                code = row['code'].split('.')[-1]
+                print(f"  • {code} {row['name'][:15]:15s} 5日涨幅: {row['5_day_change']:+.2f}%")
+        else:
+            print("  无")
+
+        strong_1d = perf_df[perf_df['max_daily_change'] > 3].sort_values('max_daily_change', ascending=False)
+        print(f"\n🔥 单日涨幅超过3%的ETF ({len(strong_1d)}只):")
+        if not strong_1d.empty:
+            for _, row in strong_1d.head(10).iterrows():
+                code = row['code'].split('.')[-1]
+                print(f"  • {code} {row['name'][:15]:15s} 最大单日: {row['max_daily_change']:+.2f}%")
+        else:
+            print("  无")
+
+        print("\n" + "=" * 60)
+        logger.info("全市场ETF涨幅分析完成")
+
 
 def main():
     """主函数"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="ETF量化分析系统")
     parser.add_argument("--once", action="store_true", help="仅运行一次")
     parser.add_argument("--schedule", action="store_true", help="定时运行")
-    
+    parser.add_argument("--market", action="store_true", help="分析全市场ETF涨幅")
+
     args = parser.parse_args()
-    
+
     system = QuantETFSystem()
-    
-    if args.once or not args.schedule:
+
+    if args.market:
+        system.analyze_market_performance()
+    elif args.once or not args.schedule:
         system.run_once()
     else:
         system.run_schedule()
