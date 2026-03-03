@@ -54,18 +54,30 @@ class ETFFetcher:
         except Exception as e:
             logger.error(f"Baostock初始化失败: {e}")
 
-    def get_etf_list(self) -> pd.DataFrame:
+    def get_etf_list(self, prefixes: List[str] = None) -> pd.DataFrame:
         """
-        获取A股所有场内ETF列表
+        获取A股场内ETF列表
+
+        Args:
+            prefixes: ETF代码前缀列表，默认为 ["51", "58", "15", "16"]
         """
+        if prefixes is None:
+            prefixes = ["51", "58", "15", "16"]
+
         try:
-            rs = bs.query_all_stock()
+            rs = bs.query_stock_basic()
             data_list = []
             while rs.next():
                 data_list.append(rs.get_row_data())
             df = pd.DataFrame(data_list, columns=rs.fields)
             if not df.empty and 'type' in df.columns:
-                df = df[df['type'] == 'ETF']
+                df = df[df['type'] == '5']
+
+                if prefixes and 'code' in df.columns:
+                    df = df[df['code'].apply(
+                        lambda x: any(x.split('.')[-1].startswith(p) for p in prefixes)
+                    )]
+
             logger.info(f"获取到 {len(df) if not df.empty else 0} 只ETF")
             return df
         except Exception as e:
@@ -319,15 +331,30 @@ class ETFFetcher:
             return pd.DataFrame()
 
 
-def get_all_etf_symbols() -> List[str]:
+def get_all_etf_symbols(prefixes: List[str] = None) -> List[str]:
     """
     获取所有A股场内ETF代码
+
+    Args:
+        prefixes: ETF代码前缀列表，默认为 ["51", "58", "15", "16"]
+                  51: 上海ETF
+                  58: 上海ETF
+                  15: 深圳ETF
+                  16: 深圳ETF
     """
+    if prefixes is None:
+        prefixes = ["51", "58", "15", "16"]
+
     fetcher = ETFFetcher()
     df = fetcher.get_etf_list()
     if not df.empty and 'code' in df.columns:
         codes = df['code'].tolist()
-        return [c.split('.')[-1] for c in codes]
+        symbols = [c.split('.')[-1] for c in codes]
+
+        if prefixes:
+            symbols = [s for s in symbols if any(s.startswith(p) for p in prefixes)]
+
+        return symbols
     return []
 
 
