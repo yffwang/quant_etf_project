@@ -30,3 +30,4 @@ venv.bak/
 htmlcov/
 *.log
 .DS_Store
+etf_data.db

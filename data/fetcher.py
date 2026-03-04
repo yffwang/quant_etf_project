@@ -258,8 +258,10 @@ class ETFFetcher:
             start_date = (datetime.now() - timedelta(days=days + 10)).strftime("%Y-%m-%d")
 
             all_data = []
+            total_etfs = len(etf_list)
+            processed_count = 0
 
-            for _, row in etf_list.iterrows():
+            for idx, row in etf_list.iterrows():
                 code = row.get('code', '')
                 name = row.get('name', '')
                 if not code:
@@ -317,6 +319,10 @@ class ETFFetcher:
                             'max_daily_change': max_daily_change,
                             'data_points': len(df)
                         })
+                        
+                        processed_count += 1
+                        logger.info(f"[{processed_count}/{total_etfs}] ✅ 处理成功: {code} {name} | {days}日涨幅: {total_change:+.2f}%")
+
 
                 except Exception as e:
                     logger.debug(f"处理{code}失败: {e}")

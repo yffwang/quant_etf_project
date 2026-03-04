@@ -295,10 +295,51 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
         lines.append(f"  • {sig}: {count}只")
     lines.append("")
     
+    # ==================== 详细分析每只ETF ====================
+    lines.append("📋 详细分析报告")
+    lines.append("=" * 80)
+    
+    for s in signals:
+        signal_emoji = "🟢" if s.score >= 0.3 else ("🔴" if s.score <= -0.3 else "🟡")
+        lines.append(f"\n{signal_emoji} {s.symbol} - {s.name}")
+        lines.append(f"  信号: {s.signal.value} | 综合评分: {s.score:.2f} | 强度: {s.strength:.2f}")
+        lines.append(f"  价格: {s.price:.3f} | 涨跌幅: {s.change_pct:+.2f}%")
+        
+        # 技术指标
+        ind = s.indicators
+        lines.append(f"\n  📊 技术指标:")
+        lines.append(f"    MA:    MA5={ind.get('ma5', 'N/A'):>8} MA10={ind.get('ma10', 'N/A'):>8} MA20={ind.get('ma20', 'N/A'):>8} MA60={ind.get('ma60', 'N/A'):>8}")
+        lines.append(f"    MACD:  DIF={ind.get('macd', 'N/A'):>8} DEA={ind.get('macd_signal', 'N/A'):>8} BAR={ind.get('macd_hist', 'N/A'):>8}")
+        lines.append(f"    RSI:   {ind.get('rsi', 'N/A'):.2f}")
+        lines.append(f"    BOLL:  Upper={ind.get('boll_upper', 'N/A'):>8} Middle={ind.get('boll_middle', 'N/A'):>8} Lower={ind.get('boll_lower', 'N/A'):>8}")
+        
+        # 动量指标
+        lines.append(f"\n  📈 动量指标:")
+        lines.append(f"    5日动量: {ind.get('momentum_short', 'N/A'):>8.2%}")
+        lines.append(f"   20日动量: {ind.get('momentum_medium', 'N/A'):>8.2%}")
+        lines.append(f"   60日动量: {ind.get('momentum_long', 'N/A'):>8.2%}")
+        
+        # 评分详情
+        lines.append(f"\n  🎯 评分详情:")
+        lines.append(f"    技术评分: {s.technical_score:.2f} | 动量评分: {s.momentum_score:.2f} | ETF因子: {s.etf_score:.2f}")
+        
+        # 信号原因
+        if s.reasons:
+            lines.append(f"\n  💡 信号原因:")
+            for i, reason in enumerate(s.reasons, 1):
+                lines.append(f"    {i}. {reason}")
+        
+        lines.append("\n" + "-" * 80)
+    
+    # ==================== 简洁汇总 ====================
+    lines.append("\n" + "=" * 80)
+    lines.append("📊 信号汇总")
+    lines.append("=" * 80)
+    
     # 强烈买入
     strong_buy = [s for s in signals if s.signal == SignalType.STRONG_BUY]
     if strong_buy:
-        lines.append("🟢 强烈买入 (Top 5):")
+        lines.append("\n🟢 强烈买入 (Top 5):")
         for s in strong_buy[:5]:
             lines.append(f"  {s.symbol} {s.name}")
             lines.append(f"    价格: {s.price:.3f} ({s.change_pct:+.2f}%)")
@@ -337,7 +378,7 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
             lines.append(f"    评分: {s.score:.2f}")
             lines.append("")
     
-    lines.append("=" * 50)
+    lines.append("\n" + "=" * 80)
     lines.append("💡 提示: 本报告仅供参考，不构成投资建议")
     
     return "\n".join(lines)
