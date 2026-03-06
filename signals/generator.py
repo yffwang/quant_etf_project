@@ -301,9 +301,12 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
     
     for s in signals:
         signal_emoji = "🟢" if s.score >= 0.3 else ("🔴" if s.score <= -0.3 else "🟡")
+        price_str = f"{s.price:.3f}" if s.price else "N/A"
+        change_str = f"{s.change_pct:+.2f}%" if s.change_pct is not None else "N/A"
+        
         lines.append(f"\n{signal_emoji} {s.symbol} - {s.name}")
         lines.append(f"  信号: {s.signal.value} | 综合评分: {s.score:.2f} | 强度: {s.strength:.2f}")
-        lines.append(f"  价格: {s.price:.3f} | 涨跌幅: {s.change_pct:+.2f}%")
+        lines.append(f"  价格: {price_str} | 涨跌幅: {change_str}")
         
         # 技术指标
         ind = s.indicators
@@ -341,8 +344,10 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
     if strong_buy:
         lines.append("\n🟢 强烈买入 (Top 5):")
         for s in strong_buy[:5]:
+            price_str = f"{s.price:.3f}" if s.price else "N/A"
+            change_str = f"{s.change_pct:+.2f}%" if s.change_pct is not None else "N/A"
             lines.append(f"  {s.symbol} {s.name}")
-            lines.append(f"    价格: {s.price:.3f} ({s.change_pct:+.2f}%)")
+            lines.append(f"    价格: {price_str} ({change_str})")
             lines.append(f"    评分: {s.score:.2f} | 强度: {s.strength:.2f}")
             if s.reasons:
                 lines.append(f"    原因: {', '.join(s.reasons[:3])}")
@@ -353,8 +358,10 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
     if buy:
         lines.append("🟢 买入推荐 (Top 5):")
         for s in buy[:5]:
+            price_str = f"{s.price:.3f}" if s.price else "N/A"
+            change_str = f"{s.change_pct:+.2f}%" if s.change_pct is not None else "N/A"
             lines.append(f"  {s.symbol} {s.name}")
-            lines.append(f"    价格: {s.price:.3f} ({s.change_pct:+.2f}%)")
+            lines.append(f"    价格: {price_str} ({change_str})")
             lines.append(f"    评分: {s.score:.2f}")
             lines.append("")
     
@@ -363,8 +370,10 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
     if sell:
         lines.append("🔴 卖出建议 (Top 5):")
         for s in sell[:5]:
+            price_str = f"{s.price:.3f}" if s.price else "N/A"
+            change_str = f"{s.change_pct:+.2f}%" if s.change_pct is not None else "N/A"
             lines.append(f"  {s.symbol} {s.name}")
-            lines.append(f"    价格: {s.price:.3f} ({s.change_pct:+.2f}%)")
+            lines.append(f"    价格: {price_str} ({change_str})")
             lines.append(f"    评分: {s.score:.2f}")
             lines.append("")
     
@@ -373,8 +382,10 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
     if strong_sell:
         lines.append("🔴 强烈卖出 (Top 5):")
         for s in strong_sell[:5]:
+            price_str = f"{s.price:.3f}" if s.price else "N/A"
+            change_str = f"{s.change_pct:+.2f}%" if s.change_pct is not None else "N/A"
             lines.append(f"  {s.symbol} {s.name}")
-            lines.append(f"    价格: {s.price:.3f} ({s.change_pct:+.2f}%)")
+            lines.append(f"    价格: {price_str} ({change_str})")
             lines.append(f"    评分: {s.score:.2f}")
             lines.append("")
     

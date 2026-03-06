@@ -101,7 +101,7 @@ class ETFFetcher:
             end_date: 结束日期 (YYYY-MM-DD)
         """
         if start_date is None:
-            start_date = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
 
