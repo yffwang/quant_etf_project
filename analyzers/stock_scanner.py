@@ -15,6 +15,7 @@ import pandas as pd
 from config import MA20_SCAN_CONFIG
 from analyzers.technical import TechnicalAnalyzer
 from analyzers.momentum import MomentumAnalyzer
+from analyzers.trend import TrendAnalyzer, calculate_trend_score
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +154,20 @@ class MA20Scanner:
         volume_price_score, volume_price_corr, volume_change = self._calculate_volume_price_score(df, recent)
         rsi_score, latest_rsi = self._calculate_rsi_score(df)
         volatility_score, volatility_20d = self._calculate_volatility_score(df)
+
+        # 多周期趋势共振分析（方案三，新增）
+        trend_analyzer = TrendAnalyzer(df)
+        trend_result = trend_analyzer.analyze()
+        trend_raw_score = trend_result.get("trend_score", 0.0)         # [-1, 1]
+        trend_normalized = (trend_raw_score + 1.0) / 2.0              # → [0, 1]
+        trend_phase = trend_result.get("trend_phase", "")
+        daily_trend = trend_result.get("daily", {})
+        weekly_trend = trend_result.get("weekly")
+        monthly_trend = trend_result.get("monthly")
+
         composite_score = self._calculate_composite_score(
-            ma20_strength, volume_price_score, rsi_score, volatility_score
+            ma20_strength, volume_price_score, rsi_score, volatility_score,
+            trend_score=trend_normalized
         )
 
         # 估算总市值
@@ -187,6 +200,13 @@ class MA20Scanner:
             "rsi_score": round(rsi_score, 4),
             "volatility_score": round(volatility_score, 4),
             "composite_score": round(composite_score, 4),
+            # 趋势共振字段（方案三，新增）
+            "trend_score": round(trend_raw_score, 4),
+            "trend_normalized": round(trend_normalized, 4),
+            "trend_phase": trend_phase,
+            "daily_trend_score": round(daily_trend.get("score", 0), 4) if daily_trend else 0,
+            "weekly_trend_score": round(weekly_trend.get("score", 0), 4) if weekly_trend else None,
+            "monthly_trend_score": round(monthly_trend.get("score", 0), 4) if monthly_trend else None,
         }
 
     def _calculate_ma20_strength(self, recent: pd.DataFrame) -> float:
@@ -323,19 +343,22 @@ class MA20Scanner:
         ma20_score: float,
         volume_price_score: float,
         rsi_score: float,
-        volatility_score: float
+        volatility_score: float,
+        trend_score: float = 0.5
     ) -> float:
         """
         计算复合评分
 
         按 config 中 weights 加权，范围 [0, 1]。
+        trend_score 已在 [-1,1] 区间，需归一化到 [0,1]。
         """
         weights = self.cfg.get("weights", {})
         composite = (
-            ma20_score * weights.get("ma20", 0.40)
-            + volume_price_score * weights.get("volume_price", 0.25)
-            + rsi_score * weights.get("rsi", 0.20)
-            + volatility_score * weights.get("volatility", 0.15)
+            ma20_score * weights.get("ma20", 0.30)
+            + volume_price_score * weights.get("volume_price", 0.20)
+            + rsi_score * weights.get("rsi", 0.15)
+            + volatility_score * weights.get("volatility", 0.10)
+            + trend_score * weights.get("trend", 0.25)
         )
         return max(0.0, min(composite, 1.0))
 
@@ -497,7 +520,7 @@ class MA20Scanner:
 - **扫描范围**: {scope}
 - **分析股票总数**: {len(df) if not df.empty else 0} 只
 - **观察窗口**: 近 {self.cfg['lookback_days']} 个交易日
-- **评分体系**: 复合得分 = MA20强势×{self.cfg['weights']['ma20']:.0%} + 量价配合×{self.cfg['weights']['volume_price']:.0%} + RSI健康×{self.cfg['weights']['rsi']:.0%} + 波动率控制×{self.cfg['weights']['volatility']:.0%}
+- **评分体系**: 复合得分 = MA20强势×{self.cfg['weights']['ma20']:.0%} + 量价配合×{self.cfg['weights']['volume_price']:.0%} + RSI健康×{self.cfg['weights']['rsi']:.0%} + 波动率控制×{self.cfg['weights']['volatility']:.0%} + 趋势共振×{self.cfg['weights']['trend']:.0%}
 
 {report}
 """
@@ -536,36 +559,39 @@ class MA20Scanner:
 
         lines = [
             "",
-            "=" * 179,
+            "=" * 190,
             title,
-            "=" * 179,
+            "=" * 190,
             f"统计日期: {datetime.now().strftime('%Y-%m-%d')}",
             f"扫描范围: {scope}",
-            f"强势标准: 近 {self.cfg['lookback_days']} 个交易日，综合 MA20 + 量价 + RSI + 波动率",
-            f"评分体系: 复合得分 = MA20强势×{self.cfg['weights']['ma20']:.0%} + 量价配合×{self.cfg['weights']['volume_price']:.0%} + RSI健康×{self.cfg['weights']['rsi']:.0%} + 波动率控制×{self.cfg['weights']['volatility']:.0%}",
+            f"强势标准: 近 {self.cfg['lookback_days']} 个交易日，综合 MA20 + 量价 + RSI + 波动率 + 趋势共振",
+            f"评分体系: 复合得分 = MA20强势×{self.cfg['weights']['ma20']:.0%} + 量价配合×{self.cfg['weights']['volume_price']:.0%} + RSI健康×{self.cfg['weights']['rsi']:.0%} + 波动率控制×{self.cfg['weights']['volatility']:.0%} + 趋势共振×{self.cfg['weights']['trend']:.0%}",
             f"分析股票总数: {len(df)} 只" + (f"，本表显示前 {top_n} 只" if top_n else ""),
             "",
-            f"{'排名':<4} {'代码':<8} {'名称':<10} {'总市值(亿)':<10} {'科技':<5} {'最新价':<8} {'MA20':<8} {'复合得分':<10} {'MA20得分':<10} {'量价得分':<10} {'RSI':<6} {'RSI得分':<8} {'波动率':<8} {'波动率得分':<10} {'成交量变化%':<12} {'上方天数':<8} {'最新偏离%':<10} {'平均偏离%':<10} {'最大偏离%':<10} {'上次跌破':<14}",
-            "-" * 179,
+            f"{'排名':<4} {'代码':<8} {'名称':<10} {'总市值(亿)':<10} {'科技':<5} {'复合得分':<10} {'趋势评分':<10} {'趋势阶段':<22} {'日线':<8} {'周线':<8} {'月线':<8} {'MA20得分':<10} {'RSI':<6} {'波动率':<8} {'量价得分':<10} {'上方天数':<8} {'最新偏离%':<10} {'上次跌破':<14}",
+            "-" * 190,
         ]
 
         for i, (_, row) in enumerate(display_df.iterrows(), 1):
+            weekly_str = f"{row.get('weekly_trend_score', 0):.2f}" if row.get('weekly_trend_score') is not None else "N/A"
+            monthly_str = f"{row.get('monthly_trend_score', 0):.2f}" if row.get('monthly_trend_score') is not None else "N/A"
             lines.append(
                 f"{i:<4} {row['code']:<8} {row['name'][:10]:<10} "
                 f"{row['market_cap']:<10.2f} {str(row['is_tech']):<5} "
-                f"{row['latest_close']:<8.2f} {row['latest_ma20']:<8.2f} "
-                f"{row['composite_score']:<10.4f} {row['ma20_strength_score']:<10.4f} "
-                f"{row['volume_price_score']:<10.4f} {row['rsi']:<6.2f} {row['rsi_score']:<8.4f} "
-                f"{row['volatility_20d']:<8.4f} {row['volatility_score']:<10.4f} "
-                f"{row['volume_change_22d']:<12.2%} {row['days_above_ma20']:<8} "
-                f"{row['latest_distance_above_ma20_pct']:<10.2f} {row['avg_distance_above_ma20_pct']:<10.2f} "
-                f"{row['max_distance_above_ma20_pct']:<10.2f} {str(row['last_breach_date']):<14}"
+                f"{row['composite_score']:<10.4f} {row['trend_score']:<10.4f} "
+                f"{str(row.get('trend_phase', ''))[:20]:<22} "
+                f"{row['daily_trend_score']:<8.2f} {weekly_str:<8} {monthly_str:<8} "
+                f"{row['ma20_strength_score']:<10.4f} {row['rsi']:<6.2f} "
+                f"{row['volatility_20d']:<8.4f} {row['volume_price_score']:<10.4f} "
+                f"{row['days_above_ma20']:<8} "
+                f"{row['latest_distance_above_ma20_pct']:<10.2f} {str(row['last_breach_date']):<14}"
             )
 
         lines.extend([
-            "-" * 179,
+            "-" * 190,
             "⚠️ 风险提示：本扫描结果仅基于技术指标，不构成投资建议。",
-            "=" * 179,
+            "  趋势评分：[-1, 1]，正数=上升趋势，负数=下降趋势，基于日/周/月线多周期共振。",
+            "=" * 190,
         ])
 
         return "\n".join(lines)

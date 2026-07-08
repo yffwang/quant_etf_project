@@ -11,6 +11,7 @@ import pandas as pd
 from analyzers.technical import TechnicalAnalyzer, calculate_technical_score
 from analyzers.momentum import MomentumAnalyzer, calculate_momentum_score
 from analyzers.etf_factors import ETFFactorAnalyzer, calculate_etf_score
+from analyzers.trend import TrendAnalyzer, calculate_trend_score
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,11 @@ class TradingSignal:
     technical_score: float = 0
     momentum_score: float = 0
     etf_score: float = 0
-    
+    trend_score: float = 0          # 多周期趋势共振评分
+
+    # 趋势阶段
+    trend_phase: str = ""
+
     # 信号强度 (0-1)
     strength: float = 0.5
     
@@ -63,22 +68,25 @@ class SignalGenerator:
     
     def __init__(
         self,
-        technical_weight: float = 0.4,
-        momentum_weight: float = 0.35,
-        etf_weight: float = 0.25
+        technical_weight: float = 0.30,
+        momentum_weight: float = 0.25,
+        etf_weight: float = 0.20,
+        trend_weight: float = 0.25
     ):
         """
         初始化信号生成器
-        
+
         Args:
             technical_weight: 技术指标权重
             momentum_weight: 动量因子权重
             etf_weight: ETF因子权重
+            trend_weight: 趋势共振权重（新增）
         """
         self.weights = {
             "technical": technical_weight,
             "momentum": momentum_weight,
-            "etf": etf_weight
+            "etf": etf_weight,
+            "trend": trend_weight
         }
     
     def analyze(
@@ -115,24 +123,31 @@ class SignalGenerator:
         )
         etf_factors = etf_analyzer.calculate_all()
         etf_score, etf_signals = calculate_etf_score(etf_factors)
-        
-        # 4. 综合评分
+
+        # 4. 多周期趋势共振分析（新增）
+        trend_analyzer = TrendAnalyzer(historical_data)
+        trend_result = trend_analyzer.analyze()
+        trend_score, trend_signals = calculate_trend_score(trend_result)
+        trend_phase = trend_result.get("trend_phase", "")
+
+        # 5. 综合评分
         total_score = (
             tech_score * self.weights["technical"] +
             mom_score * self.weights["momentum"] +
-            etf_score * self.weights["etf"]
+            etf_score * self.weights["etf"] +
+            trend_score * self.weights["trend"]
         )
-        
-        # 5. 确定信号类型
+
+        # 6. 确定信号类型
         signal_type = self._score_to_signal(total_score)
+
+        # 7. 汇总所有信号原因
+        all_reasons = tech_signals + mom_signals + etf_signals + trend_signals
         
-        # 6. 汇总所有信号原因
-        all_reasons = tech_signals + mom_signals + etf_signals
-        
-        # 7. 计算信号强度
+        # 8. 计算信号强度
         strength = abs(total_score)
-        
-        # 8. 获取价格信息
+
+        # 9. 获取价格信息
         price = 0
         change_pct = 0
         if realtime_data:
@@ -144,7 +159,7 @@ class SignalGenerator:
         
         # 合并所有指标
         all_indicators = {**tech_indicators, **mom_indicators, **etf_factors}
-        
+
         return TradingSignal(
             symbol=symbol,
             name=name,
@@ -153,6 +168,8 @@ class SignalGenerator:
             technical_score=tech_score,
             momentum_score=mom_score,
             etf_score=etf_score,
+            trend_score=trend_score,
+            trend_phase=trend_phase,
             strength=strength,
             reasons=all_reasons,
             price=price,
@@ -324,8 +341,13 @@ def format_signal_report(signals: List[TradingSignal]) -> str:
         
         # 评分详情
         lines.append(f"\n  🎯 评分详情:")
-        lines.append(f"    技术评分: {s.technical_score:.2f} | 动量评分: {s.momentum_score:.2f} | ETF因子: {s.etf_score:.2f}")
-        
+        lines.append(f"    技术评分: {s.technical_score:.2f} | 动量评分: {s.momentum_score:.2f} | ETF因子: {s.etf_score:.2f} | 趋势共振: {s.trend_score:.2f}")
+
+        # 趋势阶段
+        if s.trend_phase:
+            lines.append(f"\n  📐 趋势分析:")
+            lines.append(f"    阶段: {s.trend_phase}")
+
         # 信号原因
         if s.reasons:
             lines.append(f"\n  💡 信号原因:")

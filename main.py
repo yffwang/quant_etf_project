@@ -36,7 +36,12 @@ class QuantETFSystem:
     def __init__(self):
         self.fetcher = ETFFetcher()
         self.storage = ETFStorage()
-        self.signal_generator = SignalGenerator()
+        self.signal_generator = SignalGenerator(
+            technical_weight=config.SIGNAL_WEIGHTS["technical"],
+            momentum_weight=config.SIGNAL_WEIGHTS["momentum"],
+            etf_weight=config.SIGNAL_WEIGHTS["etf"],
+            trend_weight=config.SIGNAL_WEIGHTS["trend"],
+        )
         self.feishu_reporter = FeishuReporter()
         
         # ETF关注列表
@@ -57,17 +62,27 @@ class QuantETFSystem:
         
         logger.info(f"已加载 {len(self.watch_list)} 只关注ETF")
     
-    def fetch_data(self):
-        """获取数据"""
+    def fetch_data(self, history_days: int = 504):
+        """获取数据
+
+        Args:
+            history_days: 历史数据天数，默认 504 天（约 2 年）
+                          确保月线 resample 后有 ≥ 12 根 bar。
+        """
         logger.info("开始获取ETF数据...")
-        
+
+        start_date = (datetime.now() - timedelta(days=history_days)).strftime("%Y-%m-%d")
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
         historical_data = {}
-        
+
         for etf in self.watch_list:
             code = etf["code"]
             try:
-                # 获取历史数据
-                df = self.fetcher.get_etf_historical(code)
+                # 获取历史数据（扩展至 2 年以支持月线趋势分析）
+                df = self.fetcher.get_etf_historical(
+                    code, start_date=start_date, end_date=end_date
+                )
                 if not df.empty:
                     historical_data[code] = df
                     # 保存到数据库
