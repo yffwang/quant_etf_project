@@ -7,7 +7,7 @@ import time
 import schedule
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 
 # 配置日志
@@ -24,6 +24,9 @@ import config
 from data.fetcher import ETFFetcher
 from data.storage import ETFStorage
 from signals.generator import SignalGenerator, SignalType, format_signal_report
+from signals.vix_signal import generate_vix_signal, format_vix_report
+from analyzers import vix_linkage
+from analyzers.stock_scanner import MA20Scanner
 from reporters.feishu import FeishuReporter
 
 
@@ -72,7 +75,7 @@ class QuantETFSystem:
                     logger.info(f"获取 {code} 历史数据成功: {len(df)} 条")
                 
                 # 获取实时数据
-                realtime = self.fetcher.get_etf_realtime(code)
+                realtime = self.fetcher.get_etf_realtime(code, storage=self.storage)
                 if realtime:
                     self.storage.save_realtime(realtime)
                 
@@ -244,6 +247,129 @@ class QuantETFSystem:
         print("\n" + "=" * 60)
         logger.info("全市场ETF涨幅分析完成")
 
+    def run_vix_monitor(self):
+        """
+        运行 VIX-科技板块关联监控
+        获取 VIX(T-1) 与科技持仓(T) 的关联指标，生成仓位调整信号
+        """
+        logger.info("=" * 60)
+        logger.info("开始 VIX-科技板块关联监控")
+
+        vix_cfg = config.VIX_MONITOR_CONFIG
+        tech_etfs = vix_cfg.get("tech_etfs", {})
+        tech_stocks = vix_cfg.get("tech_stocks", {})
+
+        # 1. 获取 VIX 数据 (至少取过去一年，保证60日回归有足够数据)
+        start_date = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
+        vix_df = self.fetcher.get_vix_daily(start_date=start_date, end_date=end_date)
+        if vix_df.empty:
+            logger.error("未能获取VIX数据，跳过VIX监控")
+            return
+
+        # 2. 获取科技持仓历史数据
+        etf_dfs = {}
+        stock_dfs = {}
+
+        for name, code in tech_etfs.items():
+            try:
+                df = self.fetcher.get_etf_historical(code, start_date=start_date, end_date=end_date)
+                if not df.empty:
+                    etf_dfs[name] = df
+                time.sleep(0.3)
+            except Exception as e:
+                logger.error(f"获取ETF {name}({code}) 失败: {e}")
+
+        for name, code in tech_stocks.items():
+            try:
+                df = self.fetcher.get_stock_historical(code, start_date=start_date, end_date=end_date)
+                if not df.empty:
+                    stock_dfs[name] = df
+                time.sleep(0.3)
+            except Exception as e:
+                logger.error(f"获取个股 {name}({code}) 失败: {e}")
+
+        if not etf_dfs and not stock_dfs:
+            logger.error("未能获取任何科技持仓数据，跳过VIX监控")
+            return
+
+        # 3. 构建科技板块等权收益率指数
+        tech_basket = vix_linkage.build_tech_basket_return(etf_dfs, stock_dfs, min_history=60)
+        if tech_basket.empty:
+            logger.error("科技板块等权指数构建失败")
+            return
+
+        # 4. 对齐 VIX(T-1) 与 科技板块(T)
+        aligned = vix_linkage.align_vix_a_share(vix_df, tech_basket, vix_shift=1)
+        if aligned.empty or len(aligned) < 60:
+            logger.warning(f"对齐后数据不足，仅 {len(aligned)} 天，需要至少60天")
+            return
+
+        # 5. 计算最新指标
+        corr_window = vix_cfg.get("corr_windows", [20])[0]
+        beta_window = vix_cfg.get("beta_window", 60)
+        metrics = vix_linkage.calculate_latest_metrics(aligned, corr_window=corr_window, beta_window=beta_window)
+
+        logger.info(f"VIX最新指标: {metrics}")
+
+        # 6. 生成交易信号
+        signal = generate_vix_signal(metrics)
+
+        # 7. 获取今日持仓表现 (实时涨跌幅)
+        tech_holdings_today = {}
+        for name, code in tech_etfs.items():
+            try:
+                rt = self.fetcher.get_etf_realtime(code, storage=self.storage)
+                if rt:
+                    tech_holdings_today[name] = rt.get("pct_change", 0) or 0
+            except Exception:
+                pass
+        for name, code in tech_stocks.items():
+            try:
+                rt = self.fetcher.get_stock_realtime(code, storage=self.storage)
+                if rt:
+                    tech_holdings_today[name] = rt.get("pct_change", 0) or 0
+            except Exception:
+                pass
+
+        # 8. 输出报告
+        report = format_vix_report(signal, tech_holdings=tech_holdings_today)
+        print("\n" + report + "\n")
+
+        # 9. 发送到飞书
+        if config.FEISHU_WEBHOOK:
+            self.feishu_reporter.send_vix_report(signal, tech_holdings=tech_holdings_today)
+            logger.info("VIX监控报告已发送到飞书")
+        else:
+            logger.warning("未配置飞书Webhook，跳过VIX报告推送")
+
+        logger.info("VIX-科技板块关联监控完成")
+        logger.info("=" * 60)
+
+    def scan_ma20_stocks(self):
+        """扫描主板 MA20 强势程度，并保存完整结果到文件"""
+        scanner = MA20Scanner(self.fetcher, self.storage)
+        result_df = scanner.scan(include_all=True)
+        report = scanner.format_report(result_df, top_n=50)
+        print(report)
+
+        # 保存完整结果到 reports/ 目录（含 CSV）
+        report_path = scanner.save_report_to_md(result_df, top_n=100)
+        print(f"\n报告已保存: {report_path}")
+
+    def scan_tech_ma20_stocks(self):
+        """扫描本地科技股列表中所有股票的 MA20 强势程度"""
+        scanner = MA20Scanner(self.fetcher, self.storage)
+        result_df = scanner.scan(use_tech_list=True)
+        report = scanner.format_report(result_df)
+        print(report)
+
+        # 保存结果到 reports/ 目录
+        report_path = scanner.save_report_to_md(result_df)
+        print(f"\n科技股报告已保存: {report_path}")
+        return result_df
+
 
 def main():
     """主函数"""
@@ -253,6 +379,9 @@ def main():
     parser.add_argument("--once", action="store_true", help="仅运行一次")
     parser.add_argument("--schedule", action="store_true", help="定时运行")
     parser.add_argument("--market", action="store_true", help="分析全市场ETF涨幅")
+    parser.add_argument("--vix", action="store_true", help="运行VIX-科技板块关联监控")
+    parser.add_argument("--scan-ma20", action="store_true", help="扫描近一个月未跌破20日线的主板股票")
+    parser.add_argument("--scan-tech-ma20", action="store_true", help="扫描本地科技股列表中所有股票的MA20强势程度")
 
     args = parser.parse_args()
 
@@ -260,6 +389,12 @@ def main():
 
     if args.market:
         system.analyze_market_performance()
+    elif args.vix:
+        system.run_vix_monitor()
+    elif args.scan_tech_ma20:
+        system.scan_tech_ma20_stocks()
+    elif args.scan_ma20:
+        system.scan_ma20_stocks()
     elif args.once or not args.schedule:
         system.run_once()
     else:

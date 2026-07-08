@@ -248,6 +248,74 @@ class FeishuReporter:
         
         return self.send_text("\n".join(lines))
     
+    def send_vix_report(
+        self,
+        signal,
+        tech_holdings: Dict[str, float] = None
+    ) -> bool:
+        """
+        发送 VIX-科技板块关联监控报告
+        """
+        if not signal:
+            return self.send_text("📊 暂无VIX监控数据")
+
+        action_emoji = {
+            "清仓": "🔴",
+            "减仓": "🟠",
+            "观望/持有": "🟡",
+            "加仓": "🟢",
+            "满仓": "🟢",
+        }.get(signal.action.value, "⚪")
+
+        vix_emoji = "🔴" if signal.latest_vix >= 30 else ("🟠" if signal.latest_vix >= 25 else "🟢")
+
+        lines = []
+        lines.append(f"📊 **VIX-科技板块关联监控报告**  {signal.date}")
+        lines.append("")
+
+        # VIX 状态
+        lines.append(f"{vix_emoji} **VIX 状态**: {signal.latest_vix:.2f} ({signal.vix_level})")
+        change_str = f"{signal.vix_change_pct:+.2f}%"
+        lines.append(f"   单日变化: {change_str}")
+        lines.append("")
+
+        # 关联指标
+        lines.append("📈 **关联指标**:")
+        corr_str = f"{signal.corr_20d:.3f}" if signal.corr_20d is not None else "N/A"
+        beta_str = f"{signal.beta_60d:.3f}" if signal.beta_60d is not None else "N/A"
+        r2_str = f"{signal.r2_60d:.3f}" if signal.r2_60d is not None else "N/A"
+        lines.append(f"   20日相关系数: {corr_str}")
+        lines.append(f"   60日Beta敏感度: {beta_str}")
+        lines.append(f"   60日R²解释力: {r2_str}")
+        lines.append("")
+
+        # 交易信号
+        lines.append("-" * 40)
+        lines.append(f"{action_emoji} **【操作建议】{signal.action.value}**")
+        lines.append(f"   信号分数: {signal.score:+.2f} (-1=强烈看空, +1=强烈看多)")
+        lines.append(f"   **建议仓位: {signal.position_suggestion}**")
+        lines.append("")
+
+        # 原因
+        if signal.reasons:
+            lines.append("💡 **信号原因**:")
+            for i, r in enumerate(signal.reasons, 1):
+                lines.append(f"   {i}. {r}")
+            lines.append("")
+
+        # 持仓表现
+        if tech_holdings:
+            lines.append("📉 **科技持仓今日表现**:")
+            for name, pct in sorted(tech_holdings.items(), key=lambda x: x[1]):
+                emoji = "🔴" if pct < -1 else ("🟠" if pct < 0 else "🟢")
+                lines.append(f"   {emoji} {name}: {pct:+.2f}%")
+            lines.append("")
+
+        lines.append("-" * 40)
+        lines.append("⚠️ 提示: 本信号基于历史相关性统计，不构成投资建议。")
+
+        return self.send_text("\n".join(lines))
+
     def send_daily_report(
         self,
         strong_buy: List = None,

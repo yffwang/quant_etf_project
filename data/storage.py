@@ -226,7 +226,44 @@ class ETFStorage:
             return result
         conn.close()
         return {}
-    
+
+    def get_cached_realtime(self, symbol: str, max_age_minutes: int = 30) -> dict:
+        """
+        获取未过期的缓存实时行情
+
+        Args:
+            symbol: 标的代码
+            max_age_minutes: 缓存最大有效时间（分钟）
+
+        Returns:
+            未过期缓存数据，若不存在或已过期返回空 dict
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                SELECT * FROM etf_realtime
+                WHERE symbol = ?
+                AND update_time >= datetime('now', '-{} minutes')
+                """.format(max_age_minutes),
+                (symbol,)
+            )
+            row = cursor.fetchone()
+
+            if row:
+                columns = [desc[0] for desc in cursor.description]
+                result = dict(zip(columns, row))
+                logger.debug(f"使用缓存实时行情: {symbol}")
+                return result
+        except Exception as e:
+            logger.error(f"读取缓存实时行情失败: {e}")
+        finally:
+            conn.close()
+
+        return {}
+
     def save_analysis(self, symbol: str, analysis: dict) -> bool:
         """保存分析结果"""
         conn = sqlite3.connect(self.db_path)
